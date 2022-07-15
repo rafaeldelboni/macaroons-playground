@@ -1,4 +1,4 @@
-(ns hello-helix.app
+(ns macaroons.app
   (:require ["macaroons.js" :as mac]
             ["react-dom/client" :as rdom]
             ["uuid" :as uuid]

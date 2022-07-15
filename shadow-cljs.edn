@@ -12,4 +12,4 @@
  :builds
  {:app
   {:target :browser
-   :modules {:main {:init-fn hello-helix.app/init}}}}}
+   :modules {:main {:init-fn macaroons.app/init}}}}}
