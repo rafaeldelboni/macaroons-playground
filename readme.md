@@ -1,4 +1,5 @@
 # Macaroons Playground
+Helix (React) App to play around with Macaroons
 
 ## Run
 ```bash

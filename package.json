@@ -1,7 +1,10 @@
 {
-  "name": "hello-helix",
+  "name": "macaroons-playground",
   "version": "0.0.1",
   "private": true,
+  "scripts": {
+    "release": "shadow-cljs release app"
+  },
   "devDependencies": {
     "shadow-cljs": "2.19.1"
   },
