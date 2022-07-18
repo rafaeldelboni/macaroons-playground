@@ -26,54 +26,79 @@
     (.isValid verifier secret)))
 
 ;; state managing fns
-(defn add-caveat-input [set-state]
+(defn add-caveat-input [set-state caveat-key]
   #(let [id (uuid/v4)]
-     (set-state assoc-in [:caveats id] {:id id :value ""})))
+     (set-state assoc-in [caveat-key id] {:id id :value ""})))
 
-(defn remove-caveat-input [set-state id]
-  #(set-state update-in [:caveats] dissoc id))
+(defn remove-caveat-input [set-state caveat-key id]
+  #(set-state update-in [caveat-key] dissoc id))
 
-(defn edit-caveat-input [set-state id]
-  #(set-state update-in [:caveats id] assoc :value (.. % -target -value)))
+(defn edit-caveat-input [set-state caveat-key id]
+  #(set-state update-in [caveat-key id] assoc :value (.. % -target -value)))
+
+;; clipboard function
+(defn copy-to-clip [value]
+  (-> (.writeText js/navigator.clipboard value)
+      (.then #(js/console.log "result:" %))
+      (.catch #(js/console.log "error:" %))
+      (.finally #(js/console.log "cleanup"))))
 
 ;; components
 (defnc serialized-macaroons
   "A component which shows a serial macaroon"
   [{:keys [serialized]}]
-  (d/div "Serialized macaroon: " (d/strong (str serialized))))
+  (d/div
+   (d/h3 "Serialized macaroon: ")
+   (d/strong (str serialized))
+   (d/button {:on-click #(copy-to-clip serialized)} "Copy")))
+
+(defnc inspect-macaroons
+  "A component which shows macaroons inpect"
+  [{:keys [macaroon]}]
+  (d/div (d/pre (.inspect macaroon))))
+
+(defnc verify-macaroons
+  "A component which shows macaroons validity"
+  [{:keys [secret caveats macaroon]}]
+  (let [caveats-values (->> caveats vals (map :value))
+        verifier (verify macaroon secret caveats-values)]
+    (d/div "Is Valid?: " (d/strong (if verifier "yes" "no")))))
 
 (defnc deserialize-verify-macaroons
-  "A component which greets a user."
+  "A component which shows macaroons inpect"
   [{:keys [secret caveats serialized]}]
-  (let [caveats-values (->> caveats vals (map :value))
-        macaroon (.deserialize mac/MacaroonsBuilder serialized)
-        verifier (verify macaroon secret caveats-values)]
+  (let [macaroon (try (.deserialize mac/MacaroonsBuilder serialized)
+                      (catch js/Error _ nil))]
     (d/div
-     (d/h2 "Inspect:")
-     (if serialized
+     (d/h3 "Inspect:")
+     (if macaroon
        (d/div
-        (d/pre (.inspect macaroon))
-        (d/div "Is Valid?: " (d/strong (if verifier "yes" "no"))))
+        ($ inspect-macaroons {:macaroon macaroon})
+        ($ verify-macaroons {:macaroon macaroon
+                             :caveats caveats
+                             :secret secret}))
        (d/div "No data to inspect.")))))
 
 (defnc caveats-input
   "A component which creates caveats inputs"
-  [{:keys [set-state caveats]}]
+  [{:keys [set-state caveats caveat-key]}]
   (for [caveat (vals caveats)
         :let [id (:id caveat)]]
     (d/div {:key id}
            (d/input {:value (:value caveat)
-                     :on-change (edit-caveat-input set-state id)})
-           (d/button {:on-click (remove-caveat-input set-state id)} "-"))))
+                     :on-change (edit-caveat-input set-state caveat-key id)})
+           (d/button {:on-click (remove-caveat-input set-state caveat-key id)} "-"))))
 
 ;; app
 (defnc app []
-  (let [[state set-state] (hooks/use-state {:name "Helix User"
-                                            :location ""
-                                            :identifier ""
-                                            :secret ""
-                                            :caveats {}})
-        {:keys [location secret identifier caveats]} state
+  (let [[state set-state] (hooks/use-state {:new/location ""
+                                            :new/identifier ""
+                                            :new/secret ""
+                                            :new/caveats {}
+                                            :verify/serialized ""
+                                            :verify/secret ""
+                                            :verify/caveats {}})
+        {:new/keys [location secret identifier caveats]} state
         caveats-values (->> caveats vals (map :value))
         macaroon (.create mac/MacaroonsBuilder location secret identifier)
         macaroon_caveats (add-caveats macaroon caveats-values)
@@ -83,42 +108,72 @@
 
      (d/div
 
+      (d/h2 "New")
+
       (d/div
        (d/label {:for "location"} "Location: ")
        (d/input {:value (:location state)
                  :id "location"
                  :placeholder "https://your.domain"
-                 :on-change #(set-state assoc :location (.. % -target -value))}))
+                 :on-change #(set-state assoc :new/location (.. % -target -value))}))
 
       (d/div
        (d/label {:for "identifier"} "Identifier: ")
        (d/input {:value (:identifier state)
                  :id "identifier"
                  :placeholder "user 123"
-                 :on-change #(set-state assoc :identifier (.. % -target -value))}))
+                 :on-change #(set-state assoc :new/identifier (.. % -target -value))}))
 
       (d/div
        (d/label {:for "secret"} "Secret: ")
        (d/input {:value (:secret state)
                  :id "secret"
                  :placeholder "huge-hash-of-your-secret"
-                 :on-change #(set-state assoc :secret (.. % -target -value))}))
+                 :on-change #(set-state assoc :new/secret (.. % -target -value))}))
 
-      (d/button {:on-click (add-caveat-input set-state)} "+ Caveat"))
+      (d/button {:on-click (add-caveat-input set-state :new/caveats)} "+ Caveat")
 
-     ($ caveats-input {:set-state set-state
-                       :caveats (:caveats state)})
+      ($ caveats-input {:set-state set-state
+                        :caveats (:new/caveats state)
+                        :caveat-key :new/caveats})
 
-     ;; TODO: should be an input text
-     ($ serialized-macaroons {:serialized serialized})
+      ($ deserialize-verify-macaroons {:secret secret
+                                       :caveats caveats
+                                       :serialized serialized})
 
-     ;; TODO: caveats and secret shold be in separated verify state
-     ($ deserialize-verify-macaroons {:secret secret
-                                      :caveats caveats
-                                      :serialized serialized}))))
+      ($ serialized-macaroons {:serialized serialized}))
+
+     (d/hr)
+
+     (d/div
+
+      (d/h2 "Verify")
+
+      (d/div
+       (d/label {:for "serialized"} "Serialized Macaroon: ")
+       (d/input {:value (:serialized state)
+                 :id "serialized"
+                 :placeholder "MDAwZmxvY2F0aW9..."
+                 :on-change #(set-state assoc :verify/serialized (.. % -target -value))}))
+
+      (d/div
+       (d/label {:for "secret"} "Secret: ")
+       (d/input {:value (:secret state)
+                 :id "secret"
+                 :placeholder "huge-hash-of-your-secret"
+                 :on-change #(set-state assoc :verify/secret (.. % -target -value))}))
+
+      (d/button {:on-click (add-caveat-input set-state :verify/caveats)} "+ Caveat")
+
+      ($ caveats-input {:set-state set-state
+                        :caveats (:verify/caveats state)
+                        :caveat-key :verify/caveats})
+
+      ($ deserialize-verify-macaroons {:secret (:verify/secret state)
+                                       :caveats (:verify/caveats state)
+                                       :serialized (:verify/serialized state)})))))
 
 ;; start your app with your React renderer
 (defn ^:export init []
   (doto (rdom/createRoot (js/document.getElementById "app"))
     (.render ($ app))))
-
